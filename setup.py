@@ -23,8 +23,6 @@ setup(name='django_arecibo',
       zip_safe=False,
       install_requires=[
           'setuptools',
-          'arecibo'
-          # -*- Extra requirements: -*-
       ],
       entry_points="""
       # -*- Entry points: -*-
