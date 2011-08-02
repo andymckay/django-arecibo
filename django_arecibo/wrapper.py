@@ -102,7 +102,7 @@ class DjangoPost:
                     msg = "Failed to find %s, tried: \n%s" % (m["path"], tried)
                 else:
                     msg += m
-            data["msg"] = msg
+            self.data["msg"] = msg
 
         # if we don't get a priority, lets create one
         if not self.data.get("priority"):
