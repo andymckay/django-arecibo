@@ -3,6 +3,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.mail import send_mail
 from django.middleware.common import _is_ignorable_404
+from django.utils.encoding import smart_unicode
 
 import hashlib
 import json
@@ -106,7 +107,9 @@ class DjangoPost(object):
             "url": request.build_absolute_uri(),
             "ip": request.META.get('REMOTE_ADDR'),
             "traceback": u"\n".join(traceback.format_tb(exc_info[2])).encode("utf-8"),
-            "request": u"\n".join(data).encode("utf-8"),
+            # Replace any chars that can't be represented in UTF-8 with the
+            # Unicode replacement char:
+            "request": "\n".join(smart_unicode(d, errors='replace') for d in data),
             "type": exc_info[0],
             "msg": str(exc_info[1]),
             "status": status,
