@@ -35,8 +35,13 @@ class DjangoGroup(object):
             # First setting of the task, write a celery task to post
             # this in GROUP_WAIT seconds.
             from django_arecibo.tasks import delayed_send
-            cache.set_many({self.data_key: data, self.counter_key: 1})
-            delayed_send.apply_async([self], countdown=arecibo_setting('GROUP_WAIT', 60))
+            # We force a timeout so that if the original post fails and
+            # never goes out, eventually the cache will clear again and
+            # we've lost a few errors.
+            cache.set_many({self.data_key: data, self.counter_key: 1},
+                timeout=arecibo_setting('GROUP_WAIT', 60) * 2)
+            delayed_send.apply_async([self],
+                countdown=arecibo_setting('GROUP_WAIT', 60))
 
     def delete(self, data):
         cache.delete_many([self.data_key, self.counter_key])
@@ -96,8 +101,8 @@ class DjangoPost(object):
             "account": getattr(settings, 'ARECIBO_PUBLIC_ACCOUNT_NUMBER', ''),
             "url": request.build_absolute_uri(),
             "ip": request.META.get('REMOTE_ADDR'),
-            "traceback": "\n".join(traceback.format_tb(exc_info[2])),
-            "request": "\n".join(data).encode("utf-8"),
+            "traceback": u"\n".join(traceback.format_tb(exc_info[2])).encode("utf-8"),
+            "request": u"\n".join(data).encode("utf-8"),
             "type": exc_info[0],
             "msg": str(exc_info[1]),
             "status": status,
@@ -127,11 +132,11 @@ class DjangoPost(object):
             msg = ""
             for m in exc_info[1]:
                 if isinstance(m, dict):
-                    tried = "\n".join(m["tried"])
+                    tried = "\n".join(map(self.get_pattern, m["tried"]))
                     msg = "Failed to find %s, tried: \n%s" % (m["path"], tried)
                 else:
                     msg += m
-            data["msg"] = msg
+            self.data["msg"] = msg
 
         # if we don't get a priority, lets create one
         if not self.data.get("priority"):
@@ -142,6 +147,12 @@ class DjangoPost(object):
         self.err = error()
         for key, value in self.data.items():
             self.err.set(key, value)
+
+    def get_pattern(self, obj):
+        try:
+            return str(obj[0].regex.pattern)
+        except (IndexError, AttributeError):
+            return str(obj)
 
     def exclude_post_var(self, name):
         return self.check_exclusions(arecibo_setting('EXCLUDED_POST_VARS', ()), name)
@@ -165,25 +176,28 @@ class DjangoPost(object):
 
         return name, mask_chars[0] * len(name)
 
-
     def find_group(self, hash):
         return cache.get(hash)
 
+    def _send_group(self):
+        keys = ('type', 'msg', 'status')
+        group = Group.find_group([self.data[k] for k in keys])
+        group.set(self.data)
+
+    def _send_no_group(self):
+        try:
+            self.err.server(url=settings.ARECIBO_SERVER_URL)
+            self.err.send()
+        except Exception, e:
+            # If you want this to be an explicit, uncomment the following.
+            #print "Hit an exception sending: %s" % error
+            #raise
+            pass
+
     def send(self):
-        if arecibo_setting('GROUP_POSTS', ()):
-            group = DjangoGroup.find_group(self.data['type'],
-                                           self.data['msg'],
-                                           self.data['status'])
-            group.set(self.data)
-        else:
-            try:
-                self.err.server(url=settings.ARECIBO_SERVER_URL)
-                self.err.send()
-            except Exception, e:
-                # If you want this to be an explicit, uncomment the following.
-                #print "Hit an exception sending: %s" % error
-                #raise
-                pass
+        if arecibo_setting('GROUP_POSTS', False):
+            return self._send_group()
+        return self._send_no_group()
 
 
 def post(request, status, **kw):
