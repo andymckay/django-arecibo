@@ -98,7 +98,7 @@ class DjangoPost:
             msg = ""
             for m in exc_info[1]:
                 if isinstance(m, dict):
-                    tried = "\n".join(map(self.get_url, m["tried"]))
+                    tried = "\n".join(map(self.get_pattern, m["tried"]))
                     msg = "Failed to find %s, tried: \n%s" % (m["path"], tried)
                 else:
                     msg += m
@@ -114,10 +114,10 @@ class DjangoPost:
         for key, value in self.data.items():
             self.err.set(key, value)
 
-    def get_url(self, obj):
+    def get_pattern(self, obj):
         try:
             return str(obj[0].regex.pattern)
-        except (KeyError, AttributeError):
+        except (IndexError, AttributeError):
             return str(obj)
 
     def send(self):
