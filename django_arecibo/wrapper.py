@@ -1,42 +1,76 @@
 from arecibo import post as error
 from django.conf import settings
+from django.core.cache import cache
 from django.core.mail import send_mail
 from django.middleware.common import _is_ignorable_404
 
+import hashlib
+import json
 import traceback
 import sys
-import time
+import uuid
 
 NO_DEFAULT = object()
+
 def arecibo_setting(key, default=NO_DEFAULT):
     arecibo_settings = getattr(settings, 'ARECIBO_SETTINGS', {})
     if default is NO_DEFAULT:
         return arecibo_settings[key]
     return arecibo_settings.get(key, default)
 
-def exclude_post_var(name):
-    return check_exclusions(arecibo_setting('EXCLUDED_POST_VARS', ()), name)
+class DjangoGroup(object):
+    """Group together errors using Django caching lib."""
+    # TODO: raise an error if they are using something
+    # like locmem, which won't work.
 
-def exclude_file(name):
-    return check_exclusions(arecibo_setting('EXCLUDED_FILES', ()), name)
+    def __init__(self, hash):
+        self.hash = hash
+        self.data_key = 'arecibo-client-data:%s' % self.hash
+        self.counter_key = 'arecibo-client-count:%s' % self.hash
 
-def check_exclusions(exclusions, name):
-    return name in exclusions
+    def set(self, data):
+        if cache.get(self.data_key):
+            cache.incr(self.counter_key)
+        else:
+            # First setting of the task, write a celery task to post
+            # this in GROUP_WAIT seconds.
+            from django_arecibo.tasks import delayed_send
+            # We force a timeout so that if the original post fails and
+            # never goes out, eventually the cache will clear again and
+            # we've lost a few errors.
+            cache.set_many({self.data_key: data, self.counter_key: 1},
+                timeout=arecibo_setting('GROUP_WAIT', 60) * 2)
+            delayed_send.apply_async([self],
+                countdown=arecibo_setting('GROUP_WAIT', 60))
 
-def filter_post_var(name, value, mask_char='*'):
-    filters = arecibo_setting('FILTERED_POST_VARS', ())
-    if not name in filters:
-        return name, value
-    return name, mask_char[0] * len(value)
+    def delete(self, data):
+        cache.delete_many([self.data_key, self.counter_key])
 
-def filter_file(name, value, mask_char='*'):
-    filters = arecibo_setting('FILTERED_FILES', ())
-    if not name in filters:
-        return name, value
+    @classmethod
+    def get_hash(cls, *data):
+        hash = hashlib.md5()
+        hash.update(':'.join([str(d) for d in data]))
+        return hash.hexdigest()
 
-    return name, mask_chars[0] * len(name)
+    @classmethod
+    def find_group(cls, *data):
+        return cls(cls.get_hash(*data))
 
-class DjangoPost:
+    def send(self):
+        data = cache.get_many([self.data_key, self.counter_key])
+        if not data:
+            return
+        cache.delete_many([self.data_key, self.counter_key])
+
+        err = error()
+        for key, value in data[self.data_key].items():
+            err.set(key, value)
+        err.set('count', data[self.counter_key])
+        err.server(url=settings.ARECIBO_SERVER_URL)
+        err.send()
+
+
+class DjangoPost(object):
     def __init__(self, request, status, **kw):
         # first off, these items can just be ignored, we
         # really don't care about them too much
@@ -67,12 +101,12 @@ class DjangoPost:
             "account": getattr(settings, 'ARECIBO_PUBLIC_ACCOUNT_NUMBER', ''),
             "url": request.build_absolute_uri(),
             "ip": request.META.get('REMOTE_ADDR'),
-            "traceback": "\n".join(traceback.format_tb(exc_info[2])),
-            "request": "\n".join(data).encode("utf-8"),
+            "traceback": u"\n".join(traceback.format_tb(exc_info[2])).encode("utf-8"),
+            "request": u"\n".join(data).encode("utf-8"),
             "type": exc_info[0],
             "msg": str(exc_info[1]),
             "status": status,
-            "uid": time.time(),
+            "uid": uuid.uuid4(),
             "user_agent": request.META.get('HTTP_USER_AGENT'),
         }
 
@@ -120,21 +154,50 @@ class DjangoPost:
         except (IndexError, AttributeError):
             return str(obj)
 
-    def send(self):
+    def exclude_post_var(self, name):
+        return self.check_exclusions(arecibo_setting('EXCLUDED_POST_VARS', ()), name)
+
+    def exclude_file(self, name):
+        return self.check_exclusions(arecibo_setting('EXCLUDED_FILES', ()), name)
+
+    def check_exclusions(self, exclusions, name):
+        return name in exclusions
+
+    def filter_post_var(self, name, value, mask_char='*'):
+        filters = arecibo_setting('FILTERED_POST_VARS', ())
+        if not name in filters:
+            return name, value
+        return name, mask_char[0] * len(value)
+
+    def filter_file(self, name, value, mask_char='*'):
+        filters = arecibo_setting('FILTERED_FILES', ())
+        if not name in filters:
+            return name, value
+
+        return name, mask_chars[0] * len(name)
+
+    def find_group(self, hash):
+        return cache.get(hash)
+
+    def _send_group(self):
+        keys = ('type', 'msg', 'status')
+        group = Group.find_group([self.data[k] for k in keys])
+        group.set(self.data)
+
+    def _send_no_group(self):
         try:
-            if getattr(settings, "ARECIBO_TRANSPORT", "") == "smtp":
-                # use Djangos builtin mail
-                send_mail("Error", self.err.as_json(),
-                    settings.DEFAULT_FROM_EMAIL,
-                    [settings.ARECIBO_SERVER_EMAIL,])
-            else:
-                self.err.server(url=settings.ARECIBO_SERVER_URL)
-                self.err.send()
+            self.err.server(url=settings.ARECIBO_SERVER_URL)
+            self.err.send()
         except Exception, e:
-            # If you want this to be an explicit, uncomment the raise
+            # If you want this to be an explicit, uncomment the following.
             #print "Hit an exception sending: %s" % error
             #raise
             pass
+
+    def send(self):
+        if arecibo_setting('GROUP_POSTS', False):
+            return self._send_group()
+        return self._send_no_group()
 
 
 def post(request, status, **kw):
