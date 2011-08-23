@@ -92,8 +92,12 @@ class DjangoPost(object):
         data = [ "%s: %s" % (k, request.META[k]) for k in items if request.META.get(k)]
         if request.method.lower() == "post":
             data.append("POST and FILES Variables:")
-            data.extend( [ "    %s: %s" % filter_post_var(k, v) for k, v in request.POST.items() if not exclude_post_var(k) ])
-            data.extend( [ "    %s: %s" % filter_file(k, v) for k, v in request.FILES.items() if not exclude_file(k) ])
+            data.extend(["    %s: %s" % self.filter_post_var(k, v)
+                         for k, v in request.POST.items()
+                         if not self.exclude_post_var(k) ])
+            data.extend(["    %s: %s" % self.filter_file(k, v)
+                         for k, v in request.FILES.items()
+                         if not self.exclude_file(k) ])
 
         # build out data to send to Arecibo some fields (like timestamp)
         # are automatically added
