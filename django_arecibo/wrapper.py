@@ -19,7 +19,7 @@ def arecibo_setting(key, default=NO_DEFAULT):
         return arecibo_settings[key]
     return arecibo_settings.get(key, default)
 
-class DjangoGroup(object):
+class Group(object):
     """Group together errors using Django caching lib."""
     # TODO: raise an error if they are using something
     # like locmem, which won't work.

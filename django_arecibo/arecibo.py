@@ -26,7 +26,7 @@ import json
 keys = ["account", "ip", "priority", "uid",
     "type", "msg", "traceback", "user_agent",
     "url", "status", "server", "timestamp",
-    "request", "username"]
+    "request", "username", "count"]
 
 default_route = "/v/1/"
 
