@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from django.utils import simplejson as json
+
 from httplib import HTTPConnection
 has_https = False
 try:
@@ -21,7 +23,6 @@ except ImportError:
 from email.Utils import formatdate
 
 import smtplib
-import json
 
 keys = ["account", "ip", "priority", "uid",
     "type", "msg", "traceback", "user_agent",

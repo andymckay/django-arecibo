@@ -1,4 +1,4 @@
-from arecibo import post as error
+from django_arecibo.arecibo import post as error
 from django.conf import settings
 from django.core.cache import cache
 from django.core.mail import send_mail
@@ -6,7 +6,6 @@ from django.middleware.common import _is_ignorable_404
 from django.utils.encoding import smart_unicode
 
 import hashlib
-import json
 import traceback
 import sys
 import uuid

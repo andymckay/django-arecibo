@@ -1,5 +1,5 @@
 from celery.decorators import task
-from wrapper import DjangoPost
+from django_arecibo.wrapper import DjangoPost
 
 @task
 def delayed_send(obj):
