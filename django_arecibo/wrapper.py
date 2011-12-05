@@ -6,7 +6,6 @@ from django.middleware.common import _is_ignorable_404
 from django.utils.encoding import smart_unicode
 
 import hashlib
-import json
 import traceback
 import sys
 import uuid
