@@ -34,13 +34,13 @@ class Group(object):
         else:
             # First setting of the task, write a celery task to post
             # this in GROUP_WAIT seconds.
-            from django_arecibo.tasks import delayed_send
+            from django_arecibo.tasks import delayed_send_group
             # We force a timeout so that if the original post fails and
             # never goes out, eventually the cache will clear again and
             # we've lost a few errors.
             cache.set_many({self.data_key: data, self.counter_key: 1},
                 timeout=arecibo_setting('GROUP_WAIT', 60) * 2)
-            delayed_send.apply_async([self],
+            delayed_send_group.apply_async([self.hash],
                 countdown=arecibo_setting('GROUP_WAIT', 60))
 
     def delete(self, data):
@@ -61,7 +61,9 @@ class Group(object):
         if not data:
             return
         cache.delete_many([self.data_key, self.counter_key])
+        self.post(data)
 
+    def post(self, data):
         err = error()
         for key, value in data[self.data_key].items():
             err.set(key, value)
