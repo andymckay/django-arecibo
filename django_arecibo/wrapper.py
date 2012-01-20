@@ -86,6 +86,13 @@ class DjangoPost(object):
         if request.META.get('REMOTE_ADDR') in settings.INTERNAL_IPS:
             return
 
+        # You can optionally define some callbacks so that the error
+        # will be tested against them before posting. This is good for
+        # blocking certain user agents under certain conditions for examples.
+        for callback in arecibo_setting('CALLBACKS', []):
+            if not callback(request, status):
+                return
+
         exc_info = sys.exc_info()
         items = ['HOME', 'HTTP_ACCEPT', 'HTTP_ACCEPT_ENCODING', 'HTTP_REFERER', \
                  'HTTP_ACCEPT_LANGUAGE', 'HTTP_CONNECTION', 'HTTP_HOST', 'LANG', \
