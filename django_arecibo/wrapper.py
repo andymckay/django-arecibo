@@ -90,7 +90,13 @@ class DjangoPost(object):
         # will be tested against them before posting. This is good for
         # blocking certain user agents under certain conditions for examples.
         for callback in arecibo_setting('CALLBACKS', []):
-            if not callback(request, status):
+            if callable(callback):
+                fn = callback
+            else:  # Should be a string, anything else is wrong.
+                module, _, function = callback.rpartition('.')
+                mod = __import__(module)
+                fn = mod.getattr(function)
+            if not fn(request, status):
                 return
 
         exc_info = sys.exc_info()
